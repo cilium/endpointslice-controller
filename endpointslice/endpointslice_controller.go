@@ -1,5 +1,6 @@
 /*
 Copyright 2019 The Kubernetes Authors.
+Copyright (C) Isovalent, Inc. - All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,13 +24,17 @@ import (
 
 	"golang.org/x/time/rate"
 
+	endpointslicerec "github.com/isovalent/endpointslice"
+	endpointslicepkg "github.com/isovalent/endpointslice-controller/util/endpointslice"
+	endpointslicemetrics "github.com/isovalent/endpointslice/metrics"
+	"github.com/isovalent/endpointslice/topologycache"
+	endpointsliceutil "github.com/isovalent/endpointslice/util"
 	v1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	discoveryinformers "k8s.io/client-go/informers/discovery/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -40,14 +45,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
-	endpointslicerec "k8s.io/endpointslice"
-	endpointslicemetrics "k8s.io/endpointslice/metrics"
-	"k8s.io/endpointslice/topologycache"
-	endpointsliceutil "k8s.io/endpointslice/util"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/controller"
-	endpointslicepkg "k8s.io/kubernetes/pkg/controller/util/endpointslice"
-	"k8s.io/kubernetes/pkg/features"
 )
 
 const (
@@ -85,6 +83,29 @@ func NewController(ctx context.Context, podInformer coreinformers.PodInformer,
 	maxEndpointsPerSlice int32,
 	client clientset.Interface,
 	endpointUpdatesBatchPeriod time.Duration,
+) *Controller {
+	return NewControllerWithName(ctx,
+		podInformer,
+		serviceInformer,
+		nodeInformer,
+		endpointSliceInformer,
+		maxEndpointsPerSlice,
+		client,
+		endpointUpdatesBatchPeriod,
+		controllerName,
+		nil)
+}
+
+// NewControllerWithName creates and initializes a new Controller with the given name
+func NewControllerWithName(ctx context.Context, podInformer coreinformers.PodInformer,
+	serviceInformer coreinformers.ServiceInformer,
+	nodeInformer coreinformers.NodeInformer,
+	endpointSliceInformer discoveryinformers.EndpointSliceInformer,
+	maxEndpointsPerSlice int32,
+	client clientset.Interface,
+	endpointUpdatesBatchPeriod time.Duration,
+	controllerName string,
+	checkService func(service *v1.Service) bool,
 ) *Controller {
 	broadcaster := record.NewBroadcaster()
 	recorder := broadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "endpoint-slice-controller"})
@@ -151,21 +172,19 @@ func NewController(ctx context.Context, podInformer coreinformers.PodInformer,
 
 	c.endpointUpdatesBatchPeriod = endpointUpdatesBatchPeriod
 
-	if utilfeature.DefaultFeatureGate.Enabled(features.TopologyAwareHints) {
-		nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				c.addNode(logger, obj)
-			},
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				c.updateNode(logger, oldObj, newObj)
-			},
-			DeleteFunc: func(obj interface{}) {
-				c.deleteNode(logger, obj)
-			},
-		})
+	nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			c.addNode(logger, obj)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			c.updateNode(logger, oldObj, newObj)
+		},
+		DeleteFunc: func(obj interface{}) {
+			c.deleteNode(logger, obj)
+		},
+	})
 
-		c.topologyCache = topologycache.NewTopologyCache()
-	}
+	c.topologyCache = topologycache.NewTopologyCache()
 
 	c.reconciler = endpointslicerec.NewReconciler(
 		c.client,
@@ -176,6 +195,8 @@ func NewController(ctx context.Context, podInformer coreinformers.PodInformer,
 		c.eventRecorder,
 		controllerName,
 	)
+
+	c.isSyncService = checkService
 
 	return c
 }
@@ -247,6 +268,11 @@ type Controller struct {
 	// topologyCache tracks the distribution of Nodes and endpoints across zones
 	// to enable TopologyAwareHints.
 	topologyCache *topologycache.TopologyCache
+
+	// isSyncService returns true or false in case there will be checks needed
+	// to be performed by a user of endpointslice. If not set, it assumes all
+	// services must be synced.
+	isSyncService func(service *v1.Service) bool
 }
 
 // Run will not return until stopCh is closed.
@@ -353,6 +379,10 @@ func (c *Controller) syncService(logger klog.Logger, key string) error {
 		return nil
 	}
 
+	if c.isSyncService != nil && !c.isSyncService(service) {
+		return nil
+	}
+
 	logger.V(5).Info("About to update endpoint slices for service", "key", key)
 
 	podLabelSelector := labels.Set(service.Spec.Selector).AsSelectorPreValidated()
@@ -404,7 +434,7 @@ func (c *Controller) syncService(logger klog.Logger, key string) error {
 
 // onServiceUpdate updates the Service Selector in the cache and queues the Service for processing.
 func (c *Controller) onServiceUpdate(obj interface{}) {
-	key, err := controller.KeyFunc(obj)
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("Couldn't get key for object %+v: %v", obj, err))
 		return
@@ -415,7 +445,7 @@ func (c *Controller) onServiceUpdate(obj interface{}) {
 
 // onServiceDelete removes the Service Selector from the cache and queues the Service for processing.
 func (c *Controller) onServiceDelete(obj interface{}) {
-	key, err := controller.KeyFunc(obj)
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("Couldn't get key for object %+v: %v", obj, err))
 		return
