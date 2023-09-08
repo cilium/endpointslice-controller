@@ -25,6 +25,8 @@ import (
 	"time"
 
 	endpointslicepkg "github.com/isovalent/endpointslice-controller/util/endpointslice"
+	"github.com/isovalent/endpointslice/topologycache"
+	endpointsliceutil "github.com/isovalent/endpointslice/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -41,8 +43,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/endpointslice/topologycache"
-	endpointsliceutil "k8s.io/endpointslice/util"
 	"k8s.io/klog/v2/ktesting"
 	"k8s.io/utils/pointer"
 )
