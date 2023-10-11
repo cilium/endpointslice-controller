@@ -24,9 +24,6 @@ import (
 	"testing"
 	"time"
 
-	endpointslicepkg "github.com/isovalent/endpointslice-controller/util/endpointslice"
-	"github.com/isovalent/endpointslice/topologycache"
-	endpointsliceutil "github.com/isovalent/endpointslice/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -43,14 +40,13 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/endpointslice/topologycache"
+	endpointsliceutil "k8s.io/endpointslice/util"
 	"k8s.io/klog/v2/ktesting"
+	"k8s.io/kubernetes/pkg/controller"
+	endpointslicepkg "k8s.io/kubernetes/pkg/controller/util/endpointslice"
 	"k8s.io/utils/pointer"
 )
-
-// Returns 0 for resyncPeriod in case resyncing is not needed.
-func NoResyncPeriodFunc() time.Duration {
-	return 0
-}
 
 // Most of the tests related to EndpointSlice allocation can be found in reconciler_test.go
 // Tests here primarily focus on unique controller functionality before the reconciler begins
@@ -68,7 +64,7 @@ type endpointSliceController struct {
 func newController(t *testing.T, nodeNames []string, batchPeriod time.Duration) (*fake.Clientset, *endpointSliceController) {
 	client := fake.NewSimpleClientset()
 
-	informerFactory := informers.NewSharedInformerFactory(client, NoResyncPeriodFunc())
+	informerFactory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
 	nodeInformer := informerFactory.Core().V1().Nodes()
 	indexer := nodeInformer.Informer().GetIndexer()
 	for _, nodeName := range nodeNames {
