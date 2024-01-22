@@ -20,8 +20,8 @@ import (
 	"math"
 	"sync"
 
+	endpointsliceutil "github.com/cilium/endpointslice/util"
 	"k8s.io/apimachinery/pkg/types"
-	endpointsliceutil "k8s.io/endpointslice/util"
 )
 
 // NewCache returns a new Cache with the specified endpointsPerSlice.

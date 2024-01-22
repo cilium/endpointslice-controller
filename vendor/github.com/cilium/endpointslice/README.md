@@ -1,3 +1,11 @@
+# Fork of upstream endpointslice
+
+This repository is a fork of the upstream endpoint slice since it contains
+minor changes made into it so that we can use it as part of MCS feature.
+
+Since v0.28.1 the git tags are always a 1:1 mapping with the upstream tags with
+the addition of the "non-upstreamable" changes.
+
 # endpointslice
 
 ## Purpose

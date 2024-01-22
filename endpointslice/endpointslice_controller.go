@@ -24,7 +24,11 @@ import (
 
 	"golang.org/x/time/rate"
 
+	endpointslicerec "github.com/cilium/endpointslice"
 	endpointslicepkg "github.com/cilium/endpointslice-controller/util/endpointslice"
+	endpointslicemetrics "github.com/cilium/endpointslice/metrics"
+	"github.com/cilium/endpointslice/topologycache"
+	endpointsliceutil "github.com/cilium/endpointslice/util"
 	v1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -41,10 +45,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
-	endpointslicerec "k8s.io/endpointslice"
-	endpointslicemetrics "k8s.io/endpointslice/metrics"
-	"k8s.io/endpointslice/topologycache"
-	endpointsliceutil "k8s.io/endpointslice/util"
 	"k8s.io/klog/v2"
 )
 
