@@ -84,6 +84,29 @@ func NewController(ctx context.Context, podInformer coreinformers.PodInformer,
 	client clientset.Interface,
 	endpointUpdatesBatchPeriod time.Duration,
 ) *Controller {
+	return NewControllerWithName(ctx,
+		podInformer,
+		serviceInformer,
+		nodeInformer,
+		endpointSliceInformer,
+		maxEndpointsPerSlice,
+		client,
+		endpointUpdatesBatchPeriod,
+		controllerName,
+		nil)
+}
+
+// NewControllerWithName creates and initializes a new Controller with the given name
+func NewControllerWithName(ctx context.Context, podInformer coreinformers.PodInformer,
+	serviceInformer coreinformers.ServiceInformer,
+	nodeInformer coreinformers.NodeInformer,
+	endpointSliceInformer discoveryinformers.EndpointSliceInformer,
+	maxEndpointsPerSlice int32,
+	client clientset.Interface,
+	endpointUpdatesBatchPeriod time.Duration,
+	controllerName string,
+	checkService func(service *v1.Service) bool,
+) *Controller {
 	broadcaster := record.NewBroadcaster()
 	recorder := broadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "endpoint-slice-controller"})
 
@@ -173,6 +196,8 @@ func NewController(ctx context.Context, podInformer coreinformers.PodInformer,
 		controllerName,
 	)
 
+	c.isSyncService = checkService
+
 	return c
 }
 
@@ -243,6 +268,11 @@ type Controller struct {
 	// topologyCache tracks the distribution of Nodes and endpoints across zones
 	// to enable TopologyAwareHints.
 	topologyCache *topologycache.TopologyCache
+
+	// isSyncService returns true or false in case there will be checks needed
+	// to be performed by a user of endpointslice. If not set, it assumes all
+	// services must be synced.
+	isSyncService func(service *v1.Service) bool
 }
 
 // Run will not return until stopCh is closed.
@@ -346,6 +376,10 @@ func (c *Controller) syncService(logger klog.Logger, key string) error {
 	if service.Spec.Selector == nil {
 		// services without a selector receive no endpoint slices from this controller;
 		// these services will receive endpoint slices that are created out-of-band via the REST API.
+		return nil
+	}
+
+	if c.isSyncService != nil && !c.isSyncService(service) {
 		return nil
 	}
 
