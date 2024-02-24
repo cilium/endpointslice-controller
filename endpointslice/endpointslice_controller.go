@@ -93,7 +93,7 @@ func NewController(ctx context.Context, podInformer coreinformers.PodInformer,
 		client,
 		endpointUpdatesBatchPeriod,
 		controllerName,
-		nil)
+		nil, nil)
 }
 
 // NewControllerWithName creates and initializes a new Controller with the given name
@@ -106,6 +106,7 @@ func NewControllerWithName(ctx context.Context, podInformer coreinformers.PodInf
 	endpointUpdatesBatchPeriod time.Duration,
 	controllerName string,
 	checkService func(service *v1.Service) bool,
+	notFoundServiceHook func(namespace, name string) error,
 ) *Controller {
 	broadcaster := record.NewBroadcaster()
 	recorder := broadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "endpoint-slice-controller"})
@@ -197,6 +198,7 @@ func NewControllerWithName(ctx context.Context, podInformer coreinformers.PodInf
 	)
 
 	c.isSyncService = checkService
+	c.notFoundServiceHook = notFoundServiceHook
 
 	return c
 }
@@ -273,6 +275,10 @@ type Controller struct {
 	// to be performed by a user of endpointslice. If not set, it assumes all
 	// services must be synced.
 	isSyncService func(service *v1.Service) bool
+
+	// notFoundServiceHook is a function executed when the service is not found to perform
+	// additional cleanup.
+	notFoundServiceHook func(namespace, name string) error
 }
 
 // Run will not return until stopCh is closed.
@@ -363,6 +369,9 @@ func (c *Controller) syncService(logger klog.Logger, key string) error {
 		c.triggerTimeTracker.DeleteService(namespace, name)
 		c.reconciler.DeleteService(namespace, name)
 		c.endpointSliceTracker.DeleteService(namespace, name)
+		if c.notFoundServiceHook != nil {
+			return c.notFoundServiceHook(namespace, name)
+		}
 		// The service has been deleted, return nil so that it won't be retried.
 		return nil
 	}
