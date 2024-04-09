@@ -8,7 +8,7 @@ The diff between the upstream and this fork should be minimal. In case this
 repository needs to be updated, the following commands should be performed:
 
 ```bash
-tag="v1.29.0"
+tag="v1.29.3"
 url="https://raw.githubusercontent.com/kubernetes/kubernetes/${tag}"
 
 curl "${url}/pkg/controller/endpointslice/endpointslice_controller.go" > endpointslice/endpointslice_controller.go
